@@ -142,7 +142,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.tag.outputs.release_tag }}
-          body_path: release.txt
           files: |
             ${{ github.workspace }}/build/*.apk
             ${{ github.workspace }}/build/*.pem
