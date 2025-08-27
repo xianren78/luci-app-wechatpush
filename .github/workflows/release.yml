@@ -145,4 +145,3 @@ jobs:
           files: |
             ${{ github.workspace }}/build/*.apk
             ${{ github.workspace }}/build/*.pem
-          prerelease: true
