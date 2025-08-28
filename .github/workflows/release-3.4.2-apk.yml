@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
       - name: Clone repo and extract version
         run: |
-          git clone --branch 3.4.2 --depth 1 https://github.com/xianren78/luci-app-wechatpush.git package/community/luci-app-wechatpush luci-app-wechatpush-repo
+          git clone --branch 3.4.2  https://github.com/xianren78/luci-app-wechatpush.git package/community/luci-app-wechatpush luci-app-wechatpush-repo
           cd luci-app-wechatpush-repo
           if [ -f Makefile ]; then
             VERSION=$(grep "^PKG_VERSION:=" Makefile | cut -d'=' -f2 | tr -d '[:space:]' || echo 'unknown')
@@ -101,7 +101,7 @@ jobs:
           set -e
           mkdir -p package/community
           rm -rf package/community/luci-app-wechatpush
-          git clone --branch 3.4.2 --depth 1 https://github.com/xianren78/luci-app-wechatpush.git package/community/luci-app-wechatpush
+          git clone --branch 3.4.2  https://github.com/xianren78/luci-app-wechatpush.git package/community/luci-app-wechatpush
           rm -rf tmp/.package* tmp/info
           ./scripts/feeds update -a
           ./scripts/feeds install -a
