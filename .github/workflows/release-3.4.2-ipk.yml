@@ -1,0 +1,130 @@
+name: OP SNAPSHOT SDK docker build 3.4.2 ipk
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+jobs:
+  get-version:
+    runs-on: ubuntu-latest
+    outputs:
+      CUR_VERSION: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Clone repo and extract version
+        run: |
+          git clone --branch 3.4.2 --depth 1 https://github.com/xianren78/luci-app-wechatpush.git package/community/luci-app-wechatpush luci-app-wechatpush-repo
+          cd luci-app-wechatpush-repo
+          if [ -f Makefile ]; then
+            VERSION=$(grep "^PKG_VERSION:=" Makefile | cut -d'=' -f2 | tr -d '[:space:]' || echo 'unknown')
+          else
+            VERSION="unknown"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+        id: version
+  build:
+    needs: get-version
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            target: x86
+            subtarget: 64
+            package_arch: x86_64
+            goarch: x86_64
+            docker_tag: x86-64
+      fail-fast: false
+    runs-on: ubuntu-latest
+    env:
+      ARCH: ${{ matrix.arch }}
+      GOARCH: ${{ matrix.goarch }}
+      PKG_VERSION: ${{ needs.get-version.outputs.CUR_VERSION }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set timezone
+        run: |
+          sudo timedatectl set-timezone "Asia/Shanghai"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          # Remove conflicting containerd packages
+          sudo apt-get remove -y containerd containerd.io docker docker.io || true
+          sudo apt-get autoremove -y
+          # Install Docker from the official repository
+          sudo apt-get install -y ca-certificates curl gnupg
+          sudo install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+          sudo chmod a+r /etc/apt/keyrings/docker.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+            $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+          sudo apt-get update
+          # Install all required dependencies
+          sudo apt-get install -y build-essential ccache git file g++ gawk gettext libncurses-dev libssl-dev zlib1g-dev zstd docker-ce docker-ce-cli
+          sudo systemctl start docker
+          mkdir -p ${{ github.workspace }}/build
+
+      - name: Pull OpenWrt SDK Docker image
+        run: |
+          docker pull ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-24.10.2
+
+      - name: Create and start SDK container
+        run: |
+          docker create --user root --name sdk-build-${{ matrix.arch }} -v ${{ github.workspace }}:/workspace ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-24.10.2 sleep infinity
+          docker start sdk-build-${{ matrix.arch }}
+
+      - name: Update and install feeds in container
+        run: |
+          docker exec -w /builder sdk-build-${{ matrix.arch }} sh -lc '
+          set -e
+          mkdir -p package/community
+          rm -rf package/community/luci-app-wechatpush
+          git clone --branch 3.4.2 --depth 1 https://github.com/xianren78/luci-app-wechatpush.git package/community/luci-app-wechatpush
+          rm -rf tmp/.package* tmp/info
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          ./scripts/feeds install -f luci-app-wechatpush'
+          
+          docker exec sdk-build-${{ matrix.arch }} sh -c 'cat <<EOF > .config
+          CONFIG_PACKAGE_luci=y
+          #CONFIG_PACKAGE_luci-compat=y
+          CONFIG_PACKAGE_luci-app-wechatpush=y
+          CONFIG_PACKAGE_iputils-arping=y
+          CONFIG_PACKAGE_jq=y
+          CONFIG_PACKAGE_curl=y
+          CONFIG_PACKAGE_bash=y
+          CONFIG_TARGET_IMAGES=n
+          EOF'
+          docker exec sdk-build-${{ matrix.arch }} sh -c "make defconfig"
+
+      - name: Build luci-app-wechatpush in container
+        run: |
+          docker exec sdk-build-${{ matrix.arch }} sh -c "make -j$(nproc) package/community/luci-app-wechatpush/compile"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/base/luci-app-wechatpush*.ipk /workspace/build/ || true"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/base/luci-i18n-wechatpush*.ipk /workspace/build/ || true"
+          # Verify build outputs
+          ls -l ${{ github.workspace }}/build/
+
+      - name: Generate release tag 
+        id: tag 
+        run: | 
+          set -euo pipefail
+
+          echo "release_tag=luci-app-wechatpush-${{ needs.get-version.outputs.CUR_VERSION }}" >> $GITHUB_OUTPUT 
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v1
+        if: steps.tag.outputs.status == 'success'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          files: |
+            ${{ github.workspace }}/build/*.ipk
