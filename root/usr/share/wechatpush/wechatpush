@@ -24,6 +24,9 @@ wait_and_cat() {
 		local variable_value=$(cat "$file")
 		eval "${variable_name}='${variable_value}'"
 	done
+	if [ ! -f "${dir}/send_enable.lock" ]; then
+		rm "$output_dir"/*
+	fi
 }
 
 # 初始化设置信息
