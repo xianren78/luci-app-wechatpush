@@ -24,7 +24,7 @@ wait_and_cat() {
 		local variable_value=$(cat "$file")
 		eval "${variable_name}='${variable_value}'"
 	done
-	if [ ! -f "${dir}/send_enable.lock" ]; then
+	if [ ! -f "${dir}send.lock" ]; then
 		rm "$output_dir"/*
 	fi
 }
